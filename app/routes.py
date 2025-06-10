@@ -1,20 +1,22 @@
+"""Handle app links."""
+
 from flask import render_template, flash, redirect, url_for, request
 from app import app
 from app.forms import LoginForm, RegistrationForm, EditProfileForm, \
-    EmptyForm, PostForm, ResetPasswordRequestForm, ResetPasswordForm
+    EmptyForm, PostForm
 from flask_login import current_user, login_user, logout_user, login_required
 import sqlalchemy as sa
 from app import db
 from app.models import User, Post
 from urllib.parse import urlsplit
 from datetime import datetime, timezone
-from app.email import send_password_reset_email
 
 
 @app.route('/', methods=['GET', 'POST'])
 @app.route('/index', methods=['GET', 'POST'])
 @login_required
 def index():
+    """Return main page of the app."""
     form = PostForm()
     if form.validate_on_submit():
         post = Post(body=form.post.data, author=current_user)
@@ -36,6 +38,7 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    """Return login page."""
     if current_user.is_authenticated:
         return redirect(url_for('index'))
     form = LoginForm()
@@ -55,12 +58,14 @@ def login():
 
 @app.route('/logout')
 def logout():
+    """Logout user and return index page."""
     logout_user()
     return redirect(url_for('index'))
 
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    """Register user and return index page."""
     if current_user.is_authenticated:
         return redirect(url_for('index'))
     form = RegistrationForm()
@@ -77,6 +82,7 @@ def register():
 @app.route('/user/<username>')
 @login_required
 def user(username):
+    """Return user <username> profile page."""
     user = db.first_or_404(sa.select(User).where(User.username == username))
     page = request.args.get('page', 1, type=int)
     query = user.posts.select().order_by(Post.timestamp.desc())
@@ -94,6 +100,7 @@ def user(username):
 
 @app.before_request
 def before_request():
+    """Update user last seen time."""
     if current_user.is_authenticated:
         current_user.last_seen = datetime.now(timezone.utc)
         db.session.commit()
@@ -102,6 +109,7 @@ def before_request():
 @app.route('/edit_profile', methods=['GET', 'POST'])
 @login_required
 def edit_profile():
+    """Return edit profile page."""
     form = EditProfileForm(current_user.username)
     if form.validate_on_submit():
         current_user.username = form.username.data
@@ -119,6 +127,7 @@ def edit_profile():
 @app.route('/follow/<username>', methods=['POST'])
 @login_required
 def follow(username):
+    """Follow current user on user 'username'."""
     form = EmptyForm()
     if form.validate_on_submit():
         user = db.session.scalar(
@@ -140,6 +149,7 @@ def follow(username):
 @app.route('/unfollow/<username>', methods=['POST'])
 @login_required
 def unfollow(username):
+    """Unfollow current user from user 'username'."""
     form = EmptyForm()
     if form.validate_on_submit():
         user = db.session.scalar(
@@ -161,6 +171,7 @@ def unfollow(username):
 @app.route('/explore')
 @login_required
 def explore():
+    "Return explore page."
     page = request.args.get('page', 1, type=int)
     query = sa.select(Post).order_by(Post.timestamp.desc())
     posts = db.paginate(query, page=page,
@@ -171,34 +182,3 @@ def explore():
         if posts.has_prev else None
     return render_template("index.html", title='Explore', posts=posts.items,
                            next_url=next_url, prev_url=prev_url)
-
-
-@app.route('/reset_password_request', methods=['GET', 'POST'])
-def reset_password_request():
-    if current_user.is_authenticated:
-        return redirect(url_for('index'))
-    form = ResetPasswordRequestForm()
-    if form.validate_on_submit():
-        user = db.session.scalar(
-            sa.select(User).where(User.email == form.email.data))
-        if user:
-            send_password_reset_email(user)
-        flash('Check your email for the instructions to reset your password')
-        return redirect(url_for('login'))
-    return render_template('reset_password_request.html',
-                           title='Reset Password', form=form)
-
-@app.route('/reset_password/<token>', methods=['GET', 'POST'])
-def reset_password(token):
-    if current_user.is_authenticated:
-        return redirect(url_for('index'))
-    user = User.verify_reset_password_token(token)
-    if not user:
-        return redirect(url_for('index'))
-    form = ResetPasswordForm()
-    if form.validate_on_submit():
-        user.set_password(form.password.data)
-        db.session.commit()
-        flash('Your password has been reset.')
-        return redirect(url_for('login'))
-    return render_template('reset_password.html', form=form)
